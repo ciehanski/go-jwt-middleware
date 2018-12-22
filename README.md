@@ -1,109 +1,26 @@
-# GO JWT Middleware
+# Go JWT Middleware
 
-A middleware that will check that a [JWT](http://jwt.io/) is sent on the `Authorization` header and will then set the content of the JWT into the `user` variable of the request.
-
-This module lets you authenticate HTTP requests using JWT tokens in your Go Programming Language applications. JWTs are typically used to protect API endpoints, and are often issued using OpenID Connect.
+This module lets you authenticate HTTP requests using [JWT]((http://jwt.io/)) tokens in your Golang applications. JWTs are typically used to protect API endpoints, and are often issued using OpenID Connect.
 
 ## Key Features
 
-* Ability to **check the `Authorization` header for a JWT**
-* **Decode the JWT** and set the content of it to the request context
+* Ability to **check the `Authorization` header, URL parameters & cookies** for a JWT
+* **Decode, parse & validate** the JWT and set the content of it to the request context
+* **Verify signing method** is not nil and valid
+* Ability to parse JWTs with **custom claims**
 
 ## Installing
 
 ````bash
-go get github.com/auth0/go-jwt-middleware
+go get github.com/ciehanski/go-jwt-middleware
 ````
 
 ## Using it
 
-You can use `jwtmiddleware` with default `net/http` as follows.
-
-````go
-// main.go
-package main
-
-import (
-  "fmt"
-  "net/http"
-
-  "github.com/auth0/go-jwt-middleware"
-  "github.com/dgrijalva/jwt-go"
-  "github.com/gorilla/context"
-)
-
-var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-  user := context.Get(r, "user")
-  fmt.Fprintf(w, "This is an authenticated request")
-  fmt.Fprintf(w, "Claim content:\n")
-  for k, v := range user.(*jwt.Token).Claims.(jwt.MapClaims) {
-    fmt.Fprintf(w, "%s :\t%#v\n", k, v)
-  }
-})
-
-func main() {
-  jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
-    ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
-      return []byte("My Secret"), nil
-    },
-    // When set, the middleware verifies that tokens are signed with the specific signing algorithm
-    // If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
-    // Important to avoid security issues described here: https://auth0.com/blog/2015/03/31/critical-vulnerabilities-in-json-web-token-libraries/
-    SigningMethod: jwt.SigningMethodHS256,
-  })
-
-  app := jwtMiddleware.Handler(myHandler)
-  http.ListenAndServe("0.0.0.0:3000", app)
-}
-````
-
-You can also use it with Negroni as follows:
-
-````go
-// main.go
-package main
-
-import (
-  "context"
-  "fmt"
-  "net/http"
-
-  "github.com/auth0/go-jwt-middleware"
-  "github.com/codegangsta/negroni"
-  "github.com/dgrijalva/jwt-go"
-  "github.com/gorilla/mux"
-)
-
-var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-  user := r.Context().Value("user");
-  fmt.Fprintf(w, "This is an authenticated request")
-  fmt.Fprintf(w, "Claim content:\n")
-  for k, v := range user.(*jwt.Token).Claims.(jwt.MapClaims) {
-    fmt.Fprintf(w, "%s :\t%#v\n", k, v)
-  }
-})
-
-func main() {
-  r := mux.NewRouter()
-
-  jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
-    ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
-      return []byte("My Secret"), nil
-    },
-    // When set, the middleware verifies that tokens are signed with the specific signing algorithm
-    // If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
-    // Important to avoid security issues described here: https://auth0.com/blog/2015/03/31/critical-vulnerabilities-in-json-web-token-libraries/
-    SigningMethod: jwt.SigningMethodHS256,
-  })
-
-  r.Handle("/ping", negroni.New(
-    negroni.HandlerFunc(jwtMiddleware.HandlerWithNext),
-    negroni.Wrap(myHandler),
-  ))
-  http.Handle("/", r)
-  http.ListenAndServe(":3001", nil)
-}
-````
+[net/http](#nethttp)  
+[negroni](#negroni)  
+[martini](#martini)  
+[gin](#gin)
 
 ## Options
 
@@ -113,13 +30,15 @@ type Options struct {
   // It can be either a shared secret or a public key.
   // Default value: nil
   ValidationKeyGetter jwt.Keyfunc
+  // A boolean to ignore expiration of the JWT
+  IgnoreExpiration bool
   // The name of the property in the request where the user information
   // from the JWT will be stored.
   // Default value: "user"
   UserProperty string
   // The function that will be called when there's an error validating the token
   // Default value: https://github.com/auth0/go-jwt-middleware/blob/master/jwtmiddleware.go#L35
-  ErrorHandler errorHandler
+  ErrorHandler ErrorHandler
   // A boolean indicating if the credentials are required or not
   // Default value: false
   CredentialsOptional bool
@@ -132,19 +51,32 @@ type Options struct {
   // When set, all requests with the OPTIONS method will use authentication
   // Default: false
   EnableAuthOnOptions bool,
-  // When set, the middelware verifies that tokens are signed with the specific signing algorithm
+  // When set, the middleware verifies that tokens are signed with the specific signing algorithm
   // If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
   // Important to avoid security issues described here: https://auth0.com/blog/2015/03/31/critical-vulnerabilities-in-json-web-token-libraries/
   // Default: nil
   SigningMethod jwt.SigningMethod
+  // A function that creates custom jwt.Claims object
+  // that passes to jwt.ParseWithClaims
+  // Default: nil
+  CustomClaims customClaims
 }
 ````
 
-### Token Extraction
+The below functions are simple enough to implement yourself, so I saw no reason them to be exported.
+
+```go
+// customClaims is a function that returns custom jwt claims.
+type customClaims func() jwt.Claims
+// errorHandler is a handler function called whenever an error is encountered.
+type errorHandler func(w http.ResponseWriter, r *http.Request, err error)
+```
+
+## Token Extraction
 
 The default value for the `Extractor` option is the `FromAuthHeader`
 function which assumes that the JWT will be provided as a bearer token
-in an `Authorization` header, i.e.,
+in an `Authorization` header, e.g.,
 
 ```
 Authorization: bearer {token}
@@ -160,9 +92,9 @@ jwtmiddleware.New(jwtmiddleware.Options{
 ```
 
 In this case, the `FromParameter` function will look for a JWT in the
-`auth_code` query parameter.
+`auth_code` query parameter of the URL.
 
-Or, if you want to allow both, you can use the `FromFirst` function to
+Or, if you want to allow multiple methods of token extraction, you can use the `FromFirst` function to
 try and extract the token first in one way and then in one or more
 other ways, e.g.,
 
@@ -173,35 +105,202 @@ jwtmiddleware.New(jwtmiddleware.Options{
 })
 ```
 
+Lastly, you can also extract the JWT from a specified cookie name:
+```go
+jwtmiddleware.New(jwtmiddleware.Options{
+  Extractor: jwtmiddleware.FromCookie("cookieName"),
+})
+```
+
 ## Examples
 
-You can check out working examples in the [examples folder](https://github.com/auth0/go-jwt-middleware/tree/master/examples)
+#### net/http
+```go
+package main
 
+import ...
 
-## What is Auth0?
+var myHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+  user := context.Get(r, "user")
+  fmt.Fprintf(w, "This is an authenticated request")
+  fmt.Fprintf(w, "Claim content:\n")
+  for k, v := range user.(*jwt.Token).Claims.(jwt.MapClaims) {
+    fmt.Fprintf(w, "%s :\t%#v\n", k, v)
+  }
+})
 
-Auth0 helps you to:
+func main() {
+  jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
+    ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
+      return []byte("dont-hack-me"), nil
+    },
+    // When set, the middleware verifies that tokens are signed with the specific signing algorithm
+    // If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
+    // Important to avoid security issues described here: https://auth0.com/blog/2015/03/31/critical-vulnerabilities-in-json-web-token-libraries/
+    SigningMethod: jwt.SigningMethodHS256,
+  })
 
-* Add authentication with [multiple authentication sources](https://docs.auth0.com/identityproviders), either social like **Google, Facebook, Microsoft Account, LinkedIn, GitHub, Twitter, Box, Salesforce, amont others**, or enterprise identity systems like **Windows Azure AD, Google Apps, Active Directory, ADFS or any SAML Identity Provider**.
-* Add authentication through more traditional **[username/password databases](https://docs.auth0.com/mysql-connection-tutorial)**.
-* Add support for **[linking different user accounts](https://docs.auth0.com/link-accounts)** with the same user.
-* Support for generating signed [Json Web Tokens](https://docs.auth0.com/jwt) to call your APIs and **flow the user identity** securely.
-* Analytics of how, when and where users are logging in.
-* Pull data from other sources and add it to the user profile, through [JavaScript rules](https://docs.auth0.com/rules).
+  app := jwtMiddleware.Handler(myHandler)
+  http.ListenAndServe("0.0.0.0:3000", app)
+}
+```
 
-## Create a free Auth0 Account
+#### Negroni
+```go
+package main
 
-1. Go to [Auth0](https://auth0.com) and click Sign Up.
-2. Use Google, GitHub or Microsoft Account to login.
+import ...
+
+func main() {
+	StartServer()
+}
+
+func StartServer() {
+	r := mux.NewRouter()
+
+	jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
+		ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
+			return []byte("My Secret"), nil
+		},
+		SigningMethod: jwt.SigningMethodHS256,
+	})
+
+	r.HandleFunc("/ping", PingHandler)
+	r.Handle("/secured/ping", negroni.New(
+		negroni.HandlerFunc(jwtMiddleware.HandlerWithNext),
+		negroni.Wrap(http.HandlerFunc(SecuredPingHandler)),
+	))
+	http.Handle("/", r)
+	http.ListenAndServe(":3001", nil)
+}
+
+type Response struct {
+	Text string `json:"text"`
+}
+
+func respondJson(text string, w http.ResponseWriter) {
+	response := Response{text}
+
+	jsonResponse, err := json.Marshal(response)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(jsonResponse)
+}
+
+func PingHandler(w http.ResponseWriter, r *http.Request) {
+	respondJson("All good. You don't need to be authenticated to call this", w)
+}
+
+func SecuredPingHandler(w http.ResponseWriter, r *http.Request) {
+	respondJson("All good. You only get this message if you're authenticated", w)
+}
+```
+
+#### Martini
+```go
+package main
+
+import ...
+
+func main() {
+	StartServer()
+}
+
+func StartServer() {
+	m := martini.Classic()
+
+	jwtMiddleware := jwtmiddleware.New(jwtmiddleware.Options{
+		ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
+			return []byte("My Secret"), nil
+		},
+		SigningMethod: jwt.SigningMethodHS256,
+	})
+
+	m.Get("/ping", PingHandler)
+	m.Get("/secured/ping", jwtMiddleware.CheckJWT, SecuredPingHandler)
+
+	m.Run()
+}
+
+type Response struct {
+	Text string `json:"text"`
+}
+
+func respondJson(text string, w http.ResponseWriter) {
+	response := Response{text}
+
+	jsonResponse, err := json.Marshal(response)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(jsonResponse)
+}
+
+func PingHandler(w http.ResponseWriter, r *http.Request) {
+	respondJson("All good. You don't need to be authenticated to call this", w)
+}
+
+func SecuredPingHandler(w http.ResponseWriter, r *http.Request) {
+	respondJson("All good. You only get this message if you're authenticated", w)
+}
+```
+
+#### Gin
+```go
+package main
+
+import ...
+
+func main() {
+	startServer()
+}
+
+var jwtMiddleware = jwtmiddleware.New(jwtmiddleware.Options{
+	ValidationKeyGetter: func(token *jwt.Token) (interface{}, error) {
+		return []byte("your auth0 client secret here"), nil
+	},
+	SigningMethod: jwt.SigningMethodHS256,
+})
+
+func checkJWT() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		jwtMid := *jwtMiddleware
+		if err := jwtMid.CheckJWT(c.Writer, c.Request); err != nil {
+			c.AbortWithStatus(401)
+		}
+	}
+}
+
+func startServer() {
+	r := gin.Default()
+
+	r.GET("/ping", func(g *gin.Context) {
+		g.JSON(200, gin.H{"text": "Hello from public"})
+	})
+
+	r.GET("/secured/ping", checkJWT(), func(g *gin.Context) {
+		g.JSON(200, gin.H{"text": "Hello from private"})
+	})
+
+	r.Run(":3002")
+}
+```
 
 ## Issue Reporting
 
-If you have found a bug or if you have a feature request, please report them at this repository issues section. Please do not report security vulnerabilities on the public GitHub issue tracker. The [Responsible Disclosure Program](https://auth0.com/whitehat) details the procedure for disclosing security issues.
+If you have found a bug or if you have a feature request, please report them at this repository's issue section. Please do not report security vulnerabilities on the public GitHub issue tracker.
 
-## Author
+## Original Author
 
 [Auth0](auth0.com)
 
 ## License
 
-This project is licensed under the MIT license. See the [LICENSE](LICENSE.txt) file for more info.
+This project is licensed under the MIT license. See the [LICENSE](LICENSE) file for more info.
