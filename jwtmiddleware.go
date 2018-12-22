@@ -11,17 +11,23 @@ import (
 	"github.com/dgrijalva/jwt-go"
 )
 
-// ErrorHandler is a handler function called whenever an error is encountered.
-type ErrorHandler func(w http.ResponseWriter, r *http.Request, err error)
+// customClaims is a function that returns custom JWT claims.
+type customClaims func() jwt.Claims
+
+// errorHandler is a handler function called whenever an error is encountered.
+type errorHandler func(w http.ResponseWriter, r *http.Request, err error)
+
+// JWTMiddleware stores the user's preferred configuration.
+type JWTMiddleware struct {
+	Options Options
+}
 
 // TokenExtractor is a function that takes a request as input and returns
-// either a token or an error.  An error should only be returned if an attempt
+// either a token or an error. An error should only be returned if an attempt
 // to specify a token was found, but the information was somehow incorrectly
-// formed.  In the case where a token is simply not present, this should not
-// be treated as an error.  An empty string should be returned in that case.
+// formed. In the case where a token is simply not present, this should not
+// be treated as an error. An empty string should be returned in that case.
 type TokenExtractor func(r *http.Request) (string, error)
-
-type customClaims func() jwt.Claims
 
 // Options is a struct for specifying configuration options for the middleware.
 type Options struct {
@@ -29,15 +35,13 @@ type Options struct {
 	// It can be either a shared secret or a public key.
 	// Default value: nil
 	ValidationKeyGetter jwt.Keyfunc
-	// A boolean to ignore expiration of the JWT
-	IgnoreExpiration bool
 	// The name of the property in the request where the user information
 	// from the JWT will be stored.
 	// Default value: "user"
 	UserProperty string
 	// The function that will be called when there's an error validating the token
-	// Default value: ErrorHandler
-	ErrorHandler ErrorHandler
+	// Default value: errorHandler
+	ErrorHandler errorHandler
 	// A boolean indicating if the credentials are required or not
 	// Default value: false
 	CredentialsOptional bool
@@ -61,11 +65,8 @@ type Options struct {
 	CustomClaims customClaims
 }
 
-type JWTMiddleware struct {
-	Options Options
-}
-
-func OnError(w http.ResponseWriter, r *http.Request, err error) {
+// onError is the default error handler which uses the http package to present the error.
+func onError(w http.ResponseWriter, r *http.Request, err error) {
 	http.Error(w, err.Error(), http.StatusUnauthorized)
 }
 
@@ -84,7 +85,7 @@ func New(options ...Options) *JWTMiddleware {
 	}
 
 	if opts.ErrorHandler == nil {
-		opts.ErrorHandler = OnError
+		opts.ErrorHandler = onError
 	}
 
 	if opts.Extractor == nil {
@@ -106,19 +107,20 @@ func (m *JWTMiddleware) logf(format string, args ...interface{}) {
 func (m *JWTMiddleware) HandlerWithNext(w http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
 	err := m.CheckJWT(w, r)
 
-	// If there was an error, do not call next.
+	// If there was an error, do not call next
 	if err == nil && next != nil {
 		next(w, r)
 	}
 }
 
+// Handler is a basic handler implementing JWT parsing.
 func (m *JWTMiddleware) Handler(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Let secure process the request. If it returns an error,
-		// that indicates the request should not continue.
+		// that indicates the request should not continue
 		err := m.CheckJWT(w, r)
 
-		// If there was an error, do not continue.
+		// If there was an error, do not continue
 		if err != nil {
 			return
 		}
@@ -141,6 +143,21 @@ func FromAuthHeader(r *http.Request) (string, error) {
 	}
 
 	return authHeaderParts[1], nil
+}
+
+// FromCookie returns a function that extracts the token from the specified
+// key in the HTTP cookie, like "access_token"
+func FromCookie(cookieName string) TokenExtractor {
+	return func(r *http.Request) (string, error) {
+		cookie, err := r.Cookie(cookieName)
+		if err != nil {
+			return "", err
+		}
+		if cookie != nil {
+			return cookie.Value, nil
+		}
+		return "", nil
+	}
 }
 
 // FromParameter returns a function that extracts the token from the specified
@@ -168,18 +185,8 @@ func FromFirst(extractors ...TokenExtractor) TokenExtractor {
 	}
 }
 
-// FromCookie returns a function that extracts the token from the specified
-// key in the HTTP cookie, like "access_token"
-func FromCookie(cookieName string) TokenExtractor {
-	return func(r *http.Request) (string, error) {
-		cookie, _ := r.Cookie(cookieName)
-		if cookie != nil {
-			return cookie.Value, nil
-		}
-		return "", nil
-	}
-}
-
+// CheckJWT is the function that validates and parses the incoming JWT.
+// Embeds the valid JWT into the context of the request.
 func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 	if !m.Options.EnableAuthOnOptions {
 		if r.Method == "OPTIONS" {
@@ -203,7 +210,7 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("error extracting token: %v", err)
 	}
 
-	// If the token is empty...
+	// If the token is empty
 	if token == "" {
 		// Check if it was required
 		if m.Options.CredentialsOptional {
@@ -222,25 +229,16 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 	// Now parse the token, check if we're using custom claims
 	var parsedToken *jwt.Token
 	if m.Options.CustomClaims != nil {
-		parsedToken, err = jwt.ParseWithClaims(
-			token, m.Options.CustomClaims(), m.Options.ValidationKeyGetter)
+		parsedToken, err = jwt.ParseWithClaims(token, m.Options.CustomClaims(), m.Options.ValidationKeyGetter)
 	} else {
 		parsedToken, err = jwt.Parse(token, m.Options.ValidationKeyGetter)
 	}
 
 	// Check if there was an error in parsing...
 	if err != nil {
-		onlyExpirationError := false
-		if vErr, ok := err.(*jwt.ValidationError); ok {
-			onlyExpirationError = vErr.Errors^jwt.ValidationErrorExpired == 0
-		}
-		if !onlyExpirationError || (onlyExpirationError && !m.Options.IgnoreExpiration) {
-			m.logf("Error parsing token: %v", err)
-			m.Options.ErrorHandler(w, r, err)
-			return fmt.Errorf("error parsing token: %v", err)
-		} else {
-			parsedToken.Valid = true
-		}
+		m.logf("Error parsing token: %v", err)
+		m.Options.ErrorHandler(w, r, err)
+		return fmt.Errorf("error parsing token: %v", err)
 	}
 
 	if m.Options.SigningMethod != nil && m.Options.SigningMethod.Alg() != parsedToken.Header["alg"] {
@@ -252,7 +250,7 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("error validating token algorithm: %s", message)
 	}
 
-	// Check if the parsed token is valid...
+	// Check if the parsed token is valid
 	if !parsedToken.Valid {
 		m.logf("Token is invalid")
 		m.Options.ErrorHandler(w, r, errors.New("the token is invalid"))
@@ -262,9 +260,9 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 	m.logf("JWT: %v", parsedToken)
 
 	// If we get here, everything worked and we can set the
-	// user property in context.
+	// user property in context
 	newRequest := r.WithContext(context.WithValue(r.Context(), m.Options.UserProperty, parsedToken))
-	// Update the current request with the new context information.
+	// Update the current request with the new context information
 	*r = *newRequest
 	return nil
 }

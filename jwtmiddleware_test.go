@@ -3,16 +3,15 @@ package jwtmiddleware
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/dgrijalva/jwt-go"
+	"github.com/gorilla/mux"
+	. "github.com/smartystreets/goconvey/convey"
+	"github.com/urfave/negroni"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"github.com/dgrijalva/jwt-go"
-	"github.com/gorilla/mux"
-	. "github.com/smartystreets/goconvey/convey"
-	"github.com/urfave/negroni"
 )
 
 // defaultAuthorizationHeaderName is the default header name where the Auth
@@ -22,14 +21,9 @@ const defaultAuthorizationHeaderName = "Authorization"
 // userPropertyName is the property name that will be set in the request context
 const userPropertyName = "custom-user-property"
 
-// the bytes read from the keys/sample-key file
+// the bytes read from the tests/sample-key file
 // private key generated with http://kjur.github.io/jsjws/tool_jwt.html
 var privateKey []byte
-
-type customClaimsTest struct {
-	Foo string `json:"foo"`
-	jwt.StandardClaims
-}
 
 // TestUnauthenticatedRequest will perform requests with no Authorization header
 func TestUnauthenticatedRequest(t *testing.T) {
@@ -52,15 +46,18 @@ func TestAuthenticatedRequest(t *testing.T) {
 	if e != nil {
 		panic(e)
 	}
+	claims := jwt.MapClaims{
+		"text": "bar",
+	}
 	Convey("Simple unauthenticated request", t, func() {
 		Convey("Authenticated GET to / path should return a 200 response", func() {
-			w := makeAuthenticatedRequest("GET", "/", customClaimsTest{Foo: "bar"}, nil)
+			w := makeAuthenticatedRequest("GET", "/", claims, nil)
 			So(w.Code, ShouldEqual, http.StatusOK)
 		})
 		Convey("Authenticated GET to /protected path should return a 200 response if expected algorithm is not specified", func() {
 			var expectedAlgorithm jwt.SigningMethod
 			expectedAlgorithm = nil
-			w := makeAuthenticatedRequest("GET", "/protected", customClaimsTest{Foo: "bar"}, expectedAlgorithm)
+			w := makeAuthenticatedRequest("GET", "/protected", claims, expectedAlgorithm)
 			So(w.Code, ShouldEqual, http.StatusOK)
 			responseBytes, err := ioutil.ReadAll(w.Body)
 			if err != nil {
@@ -68,11 +65,11 @@ func TestAuthenticatedRequest(t *testing.T) {
 			}
 			responseString := string(responseBytes)
 			// check that the encoded data in the jwt was properly returned as json
-			So(responseString, ShouldEqual, `{"foo":"bar"}`)
+			So(responseString, ShouldEqual, `{"text":"bar"}`)
 		})
 		Convey("Authenticated GET to /protected path should return a 200 response if expected algorithm is correct", func() {
 			expectedAlgorithm := jwt.SigningMethodHS256
-			w := makeAuthenticatedRequest("GET", "/protected", customClaimsTest{Foo: "bar"}, expectedAlgorithm)
+			w := makeAuthenticatedRequest("GET", "/protected", claims, expectedAlgorithm)
 			So(w.Code, ShouldEqual, http.StatusOK)
 			responseBytes, err := ioutil.ReadAll(w.Body)
 			if err != nil {
@@ -80,11 +77,11 @@ func TestAuthenticatedRequest(t *testing.T) {
 			}
 			responseString := string(responseBytes)
 			// check that the encoded data in the jwt was properly returned as json
-			So(responseString, ShouldEqual, `{"foo":"bar"}`)
+			So(responseString, ShouldEqual, `{"text":"bar"}`)
 		})
 		Convey("Authenticated GET to /protected path should return a 401 response if algorithm is not expected one", func() {
 			expectedAlgorithm := jwt.SigningMethodRS256
-			w := makeAuthenticatedRequest("GET", "/protected", customClaimsTest{Foo: "bar"}, expectedAlgorithm)
+			w := makeAuthenticatedRequest("GET", "/protected", claims, expectedAlgorithm)
 			So(w.Code, ShouldEqual, http.StatusUnauthorized)
 			responseBytes, err := ioutil.ReadAll(w.Body)
 			if err != nil {
@@ -104,8 +101,12 @@ func makeUnauthenticatedRequest(method string, url string) *httptest.ResponseRec
 func makeAuthenticatedRequest(method string, url string, c jwt.Claims, expectedSignatureAlgorithm jwt.SigningMethod) *httptest.ResponseRecorder {
 	r, _ := http.NewRequest(method, url, nil)
 	if c != nil {
-		token := jwt.New(jwt.SigningMethodHS256)
-		token.Claims = c
+		var token *jwt.Token
+		if c != nil {
+			token = jwt.NewWithClaims(jwt.SigningMethodHS256, c)
+		} else {
+			token = jwt.New(jwt.SigningMethodHS256)
+		}
 		// private key generated with http://kjur.github.io/jsjws/tool_jwt.html
 		s, e := token.SignedString(privateKey)
 		if e != nil {
@@ -180,16 +181,19 @@ func JWT(expectedSignatureAlgorithm jwt.SigningMethod) *JWTMiddleware {
 		},
 		SigningMethod: expectedSignatureAlgorithm,
 		CustomClaims: func() jwt.Claims {
-			return &customClaimsTest{}
+			claims := jwt.MapClaims{
+				"text": "bar",
+			}
+			return claims
 		},
 	})
 }
 
-// readPrivateKey will load the keys/sample-key file into the
+// readPrivateKey will load the tests/sample-key file into the
 // global privateKey variable
 func readPrivateKey() ([]byte, error) {
-	privateKey, e := ioutil.ReadFile("keys/sample-key")
-	return privateKey, e
+	privateKey, err := ioutil.ReadFile("tests/sample-key")
+	return privateKey, err
 }
 
 // indexHandler will return an empty 200 OK response
@@ -197,14 +201,16 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// protectedHandler will return the content of the "foo" encoded data
-// in the token as json -> {"foo":"bar"}
+// protectedHandler will return the content of the "text" encoded data
+// in the token as json -> {"text":"bar"}
 func protectedHandler(w http.ResponseWriter, r *http.Request) {
 	// retrieve the token from the context
 	u := r.Context().Value(userPropertyName)
 	if u != nil {
 		user := u.(*jwt.Token)
-		respondJSON(user.Claims.(jwt.MapClaims)["foo"].(string), w)
+		if claim, ok := user.Claims.(jwt.MapClaims); ok {
+			respondJSON(claim["text"].(string), w)
+		}
 	}
 }
 
