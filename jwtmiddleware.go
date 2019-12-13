@@ -56,7 +56,8 @@ type Options struct {
 	EnableAuthOnOptions bool
 	// When set, the middleware verifies that tokens are signed with the specific signing algorithm
 	// If the signing method is not constant the ValidationKeyGetter callback can be used to implement additional checks
-	// Important to avoid security issues described here: https://auth0.com/blog/2015/03/31/critical-vulnerabilities-in-json-web-token-libraries/
+	// Important to avoid security issues described here:
+	// https://auth0.com/blog/2015/03/31/critical-vulnerabilities-in-json-web-token-libraries/
 	// Default: nil
 	SigningMethod jwt.SigningMethod
 	// A function that creates custom Claims objects
@@ -241,6 +242,7 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("error parsing token: %v", err)
 	}
 
+	// Check signing method specific by middleware and incoming token
 	if m.Options.SigningMethod != nil && m.Options.SigningMethod.Alg() != parsedToken.Header["alg"] {
 		message := fmt.Sprintf("Expected %s signing method but token specified %s",
 			m.Options.SigningMethod.Alg(),
@@ -259,8 +261,7 @@ func (m *JWTMiddleware) CheckJWT(w http.ResponseWriter, r *http.Request) error {
 
 	m.logf("JWT: %v", parsedToken)
 
-	// If we get here, everything worked and we can set the
-	// user property in context
+	// If we get here, everything worked and we can set the user property in context
 	newRequest := r.WithContext(context.WithValue(r.Context(), m.Options.UserProperty, parsedToken))
 	// Update the current request with the new context information
 	*r = *newRequest

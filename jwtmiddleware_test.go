@@ -3,15 +3,16 @@ package jwtmiddleware
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/dgrijalva/jwt-go"
-	"github.com/gorilla/mux"
-	. "github.com/smartystreets/goconvey/convey"
-	"github.com/urfave/negroni"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/dgrijalva/jwt-go"
+	"github.com/gorilla/mux"
+	. "github.com/smartystreets/goconvey/convey"
+	"github.com/urfave/negroni"
 )
 
 // defaultAuthorizationHeaderName is the default header name where the Auth
@@ -46,9 +47,11 @@ func TestAuthenticatedRequest(t *testing.T) {
 	if e != nil {
 		panic(e)
 	}
+
 	claims := jwt.MapClaims{
 		"text": "bar",
 	}
+
 	Convey("Simple unauthenticated request", t, func() {
 		Convey("Authenticated GET to / path should return a 200 response", func() {
 			w := makeAuthenticatedRequest("GET", "/", claims, nil)
@@ -89,7 +92,8 @@ func TestAuthenticatedRequest(t *testing.T) {
 			}
 			responseString := string(responseBytes)
 			// check that the encoded data in the jwt was properly returned as json
-			So(strings.TrimSpace(responseString), ShouldEqual, "Expected RS256 signing method but token specified HS256")
+			So(strings.TrimSpace(responseString), ShouldEqual, "Expected RS256 signing method but "+
+				"token specified HS256")
 		})
 	})
 }
@@ -98,22 +102,24 @@ func makeUnauthenticatedRequest(method string, url string) *httptest.ResponseRec
 	return makeAuthenticatedRequest(method, url, jwt.StandardClaims{}, nil)
 }
 
-func makeAuthenticatedRequest(method string, url string, c jwt.Claims, expectedSignatureAlgorithm jwt.SigningMethod) *httptest.ResponseRecorder {
+func makeAuthenticatedRequest(method string, url string, c jwt.Claims,
+	expectedSignatureAlgorithm jwt.SigningMethod) *httptest.ResponseRecorder {
+
 	r, _ := http.NewRequest(method, url, nil)
+
+	var token *jwt.Token
 	if c != nil {
-		var token *jwt.Token
-		if c != nil {
-			token = jwt.NewWithClaims(jwt.SigningMethodHS256, c)
-		} else {
-			token = jwt.New(jwt.SigningMethodHS256)
-		}
-		// private key generated with http://kjur.github.io/jsjws/tool_jwt.html
-		s, e := token.SignedString(privateKey)
-		if e != nil {
-			panic(e)
-		}
-		r.Header.Set(defaultAuthorizationHeaderName, fmt.Sprintf("bearer %v", s))
+		token = jwt.NewWithClaims(jwt.SigningMethodHS256, c)
+	} else {
+		token = jwt.New(jwt.SigningMethodHS256)
 	}
+	// private key generated with http://kjur.github.io/jsjws/tool_jwt.html
+	s, e := token.SignedString(privateKey)
+	if e != nil {
+		panic(e)
+	}
+	r.Header.Set(defaultAuthorizationHeaderName, fmt.Sprintf("bearer %v", s))
+
 	w := httptest.NewRecorder()
 	n := createNegroniMiddleware(expectedSignatureAlgorithm)
 	n.ServeHTTP(w, r)
