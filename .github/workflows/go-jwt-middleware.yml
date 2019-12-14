@@ -24,7 +24,7 @@ jobs:
 
       - name: Test
         id: test
-        run: go test -v -race -covermode atomic -coverprofile=$GITHUB_WORKSPACE/profile.cov ./...
+        run: go test -v -race -covermode atomic -coverprofile=profile.cov
 
       - name: Submit Code Coverage
         id: submit-code-cov
@@ -32,4 +32,4 @@ jobs:
           COVERALLS_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           GO111MODULE=off go get -u github.com/mattn/goveralls
-          $(go env GOPATH)/bin/goveralls -service=github -coverprofile=$GITHUB_WORKSPACE/profile.cov
+          $(go env GOPATH)/bin/goveralls -service=github -coverprofile=profile.cov
