@@ -1,5 +1,5 @@
 name: go-jwt-middleware
-on: [push]
+on: [push, pull_request]
 jobs:
   test:
     strategy:
@@ -22,9 +22,8 @@ jobs:
       - name: Test
         id: test
         run: go test -v
-      - name: Upload to codecov.io
-        id: codecov
-        if: success()
-        run: curl -s https://codecov.io/bash | bash
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      - name: Coveralls Code Coverage
+        id: coveralls
+        uses: coverallsapp/github-action@v1.0.1
+        with:
+          github-token: ${{ secrets.COVERALLS_TOKEN }}

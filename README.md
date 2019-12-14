@@ -1,4 +1,4 @@
-# JWT Middleware [![Go Report Card](https://goreportcard.com/badge/github.com/ciehanski/go-jwt-middleware)](https://goreportcard.com/report/github.com/ciehanski/go-jwt-middleware) [![Go Coverage](https://gocover.io/_badge/github.com/ciehanski/go-jwt-middleware)](https://gocover.io/github.com/ciehanski/go-jwt-middleware)
+# JWT Middleware [![godoc](https://godoc.org/github.com/ciehanski/go-jwt-middleware?status.svg)]() [![Go Report Card](https://goreportcard.com/badge/github.com/ciehanski/go-jwt-middleware)](https://goreportcard.com/report/github.com/ciehanski/go-jwt-middleware) [![Coverage Status](https://coveralls.io/repos/github/ciehanski/go-jwt-middleware/badge.svg)](https://coveralls.io/github/ciehanski/go-jwt-middleware)
 
 This package allows you to authenticate HTTP requests using [JWT]((http://jwt.io/)) tokens in your Golang applications. JWTs are typically used to protect API endpoints, and are often issued using OpenID Connect.
 
