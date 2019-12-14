@@ -13,19 +13,23 @@ jobs:
         uses: actions/setup-go@v1
         with:
           go-version: ${{ matrix.go-version }}
+
       - name: Checkout Code
         id: checkout-code
         uses: actions/checkout@v1
+
       - name: Install Dependencies
         id: install-deps
         run: go mod download
+
       - name: Test
         id: test
-        run: go test -race -covermode atomic -coverprofile=profile.cov ./...
-      - name: Coveralls Code Coverage
-        id: coveralls-code-cov
+        run: go test -v -race -covermode atomic -coverprofile=profile.cov ./...
+
+      - name: Submit Code Coverage
+        id: submit-code-cov
         env:
           COVERALLS_TOKEN: ${{ secrets.COVERALLS_TOKEN }}
         run: |
-          GO111MODULE=off go get github.com/mattn/goveralls
+          GO111MODULE=off go get -u github.com/mattn/goveralls
           $(go env GOPATH)/bin/goveralls -coverprofile=profile.cov -service=github
