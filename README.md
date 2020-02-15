@@ -1,4 +1,5 @@
 # JWT Middleware [![godoc](https://godoc.org/github.com/ciehanski/go-jwt-middleware?status.svg)](https://godoc.org/github.com/ciehanski/go-jwt-middleware) [![Go Report Card](https://goreportcard.com/badge/github.com/ciehanski/go-jwt-middleware)](https://goreportcard.com/report/github.com/ciehanski/go-jwt-middleware) [![Coverage Status](https://coveralls.io/repos/github/ciehanski/go-jwt-middleware/badge.svg)](https://coveralls.io/github/ciehanski/go-jwt-middleware)
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fciehanski%2Fgo-jwt-middleware.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fciehanski%2Fgo-jwt-middleware?ref=badge_shield)
 
 This package allows you to authenticate HTTP requests using [JWT]((http://jwt.io/)) tokens in your Golang applications. JWTs are typically used to protect API endpoints, and are often issued using OpenID Connect.
 
@@ -306,3 +307,5 @@ If you have found a bug or if you have a feature request, please report them at 
 ## License
 
 This project is licensed under the MIT license. See the [LICENSE](LICENSE) file for more info.
+
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fciehanski%2Fgo-jwt-middleware.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fciehanski%2Fgo-jwt-middleware?ref=badge_large)
